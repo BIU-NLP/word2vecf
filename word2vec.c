@@ -549,12 +549,13 @@ void TrainModel() {
       fprintf(fo, "%s ", vocab[a].word);
       if (binary) for (b = 0; b < layer1_size; b++) fwrite(&syn0[a * layer1_size + b], sizeof(real), 1, fo);
       else for (b = 0; b < layer1_size; b++) fprintf(fo, "%lf ", syn0[a * layer1_size + b]);
+      fprintf(fo, "\n");
       if (dumpcv) {
          fprintf(fo2, "%s ", vocab[a].word);
          if (binary) for (b = 0; b < layer1_size; b++) fwrite(&syn1neg[a * layer1_size + b], sizeof(real), 1, fo2);
          else for (b = 0; b < layer1_size; b++) fprintf(fo2, "%lf ", syn1neg[a * layer1_size + b]);
+         fprintf(fo2, "\n");
       }
-      fprintf(fo, "\n");
     }
   } else {
     // Run K-means on the word vectors
