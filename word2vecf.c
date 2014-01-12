@@ -1,3 +1,13 @@
+// Modifed by Yoav Goldberg, Jan-Feb 2014
+// Removed:
+//    hierarchical-softmax training
+//    cbow
+// Added:
+//   - support for different vocabularies for words and contexts
+//   - different input syntax
+//
+/////////////////////////////////////////////////////////////////
+//
 //  Copyright 2013 Google Inc. All Rights Reserved.
 //
 //  Licensed under the Apache License, Version 2.0 (the "License");
