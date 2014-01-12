@@ -37,7 +37,7 @@ struct vocab_word {
 char train_file[MAX_STRING], output_file[MAX_STRING];
 char save_vocab_file[MAX_STRING], read_vocab_file[MAX_STRING];
 struct vocab_word *vocab;
-int binary = 0, cbow = 0, debug_mode = 2, window = 5, min_count = 5, num_threads = 1, min_reduce = 1;
+int binary = 0, cbow = 0, debug_mode = 2, window = 5, min_count = 5, num_threads = 1, min_reduce = 1, use_position = 0;
 int *vocab_hash;
 long long vocab_max_size = 1000, vocab_size = 0, layer1_size = 100;
 long long train_words = 0, word_count_actual = 0, file_size = 0, classes = 0, dumpcv = 0;
@@ -346,10 +346,17 @@ void InitNet() {
      syn1[a * layer1_size + b] = 0;
   }
   if (negative>0) {
-    a = posix_memalign((void **)&syn1neg, 128, (long long)vocab_size * layer1_size * sizeof(real));
-    if (syn1neg == NULL) {printf("Memory allocation failed\n"); exit(1);}
-    for (b = 0; b < layer1_size; b++) for (a = 0; a < vocab_size; a++)
-     syn1neg[a * layer1_size + b] = 0;
+     if (use_position) {
+       a = posix_memalign((void **)&syn1neg, 128, (long long)vocab_size * layer1_size * sizeof(real) * window * 2);
+       if (syn1neg == NULL) {printf("Memory allocation failed\n"); exit(1);}
+       for (b = 0; b < layer1_size; b++) for (a = 0; a < vocab_size * window * 2; a++)
+           syn1neg[a * layer1_size + b] = 0;
+     } else {
+       a = posix_memalign((void **)&syn1neg, 128, (long long)vocab_size * layer1_size * sizeof(real));
+       if (syn1neg == NULL) {printf("Memory allocation failed\n"); exit(1);}
+       for (b = 0; b < layer1_size; b++) for (a = 0; a < vocab_size; a++)
+           syn1neg[a * layer1_size + b] = 0;
+     }
   }
   for (b = 0; b < layer1_size; b++) for (a = 0; a < vocab_size; a++)
    syn0[a * layer1_size + b] = (rand() / (real)RAND_MAX - 0.5) / layer1_size;
@@ -464,7 +471,10 @@ void *TrainModelThread(void *id) {
         for (c = 0; c < layer1_size; c++) syn0[c + last_word * layer1_size] += neu1e[c];
       }
     } else {  //train skip-gram
+       // b is current window position, in [0,1,...,window-1]
+       // word is sen[sentence_position]
       for (a = b; a < window * 2 + 1 - b; a++) if (a != window) {
+         //printf("b is:%d a:%d\n", (int)b,(int)(a));
         c = sentence_position - window + a;
         if (c < 0) continue;
         if (c >= sentence_length) continue;
@@ -472,8 +482,8 @@ void *TrainModelThread(void *id) {
         if (last_word == -1) continue;
         l1 = last_word * layer1_size;
         for (c = 0; c < layer1_size; c++) neu1e[c] = 0;
-        // HIERARCHICAL SOFTMAX
-        if (hs) for (d = 0; d < vocab[word].codelen; d++) {
+        // HIERARCHICAL SOFTMAX {{{
+        if (hs) for (d = 0; d < vocab[word].codelen; d++) { 
           f = 0;
           l2 = vocab[word].point[d] * layer1_size;
           // Propagate hidden -> output
@@ -487,7 +497,7 @@ void *TrainModelThread(void *id) {
           for (c = 0; c < layer1_size; c++) neu1e[c] += g * syn1[c + l2];
           // Learn weights hidden -> output
           for (c = 0; c < layer1_size; c++) syn1[c + l2] += g * syn0[c + l1];
-        }
+        } // }}}
         // NEGATIVE SAMPLING
         if (negative > 0) for (d = 0; d < negative + 1; d++) {
           if (d == 0) {
@@ -500,7 +510,11 @@ void *TrainModelThread(void *id) {
             if (target == word) continue;
             label = 0;
           }
-          l2 = target * layer1_size;
+          if (use_position > 0) {
+             l2 = ((a > window?a-1:a) + (window * 2 * target)) * layer1_size;
+          } else {
+             l2 = target * layer1_size;
+          }
           f = 0;
           for (c = 0; c < layer1_size; c++) f += syn0[c + l1] * syn1neg[c + l2];
           if (f > MAX_EXP) g = (label - 1) * alpha;
@@ -681,8 +695,17 @@ int main(int argc, char **argv) {
   if ((i = ArgPos((char *)"-min-count", argc, argv)) > 0) min_count = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-classes", argc, argv)) > 0) classes = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-dumpcv", argc, argv)) > 0) dumpcv = atoi(argv[i + 1]);
+  if ((i = ArgPos((char *)"-pos", argc, argv)) > 0) use_position = 1;
   if (dumpcv && negative == 0) {
      printf("-dumpcv requires negative training.\n\n");
+     return 0;
+  };
+  if (dumpcv && (use_position > 0)) {
+     printf("-dumpcv cannot run with use_position yet.\n\n");
+     return 0;
+  };
+  if ((hs > 0 || cbow > 0) && (use_position > 0)) {
+     printf("-use_position require skip-gram negative-sampling training.\n\n");
      return 0;
   };
   vocab = (struct vocab_word *)calloc(vocab_max_size, sizeof(struct vocab_word));
