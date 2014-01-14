@@ -29,6 +29,8 @@
 #include <string.h>
 #include <math.h>
 #include <pthread.h>
+#include "vocab.h"
+#include "io.h"
 
 #define MAX_STRING 100
 #define EXP_TABLE_SIZE 1000
@@ -39,44 +41,6 @@
 //const int vocab_hash_size = 30000000;  // Maximum 30 * 0.7 = 21M words in the vocabulary
 
 typedef float real;                    // Precision of float numbers
-
-struct vocab_word {
-  long long cn;
-  int *point;
-  char *word, *code, codelen;
-};
-
-struct vocabulary *ReadVocab(char *vocabfile) {
-  long long a, i = 0;
-  char c;
-  char word[MAX_STRING];
-  FILE *fin = fopen(vocabfile, "rb");
-  if (fin == NULL) {
-    printf("Vocabulary file not found\n");
-    exit(1);
-  }
-  struct vocabulary *v = CreateVocabulary();
-  while (1) {
-    ReadWord(word, fin);
-    if (feof(fin)) break;
-    a = AddWordToVocab(v, word);
-    fscanf(fin, "%lld%c", &v->vocab[a].cn, &c);
-    i++;
-  }
-  SortAndReduceVocab(v, 0);
-  if (debug_mode > 0) {
-    printf("Vocab size: %lld\n", v->vocab_size);
-    printf("Words in train file: %lld\n", train_words);
-  }
-  fin = fopen(train_file, "rb");
-  if (fin == NULL) {
-    printf("ERROR: training data file not found!\n");
-    exit(1);
-  }
-  fseek(fin, 0, SEEK_END);
-  file_size = ftell(fin);
-  fclose(fin);
-}
 
 char train_file[MAX_STRING], output_file[MAX_STRING];
 char wvocab_file[MAX_STRING], cvocab_file[MAX_STRING];
@@ -90,12 +54,23 @@ clock_t start;
 struct vocabulary *wv;
 struct vocabulary *cv;
 
-int num_words = -1;
-int num_contexts = -1;
-
 int negative = 15;
 const int table_size = 1e8;
 int *unitable;
+
+long long GetFileSize(char *fname) {
+  long long fsize;
+  FILE *fin = fopen(fname, "rb");
+  if (fin == NULL) {
+    printf("ERROR: file not found! %s\n", fname);
+    exit(1);
+  }
+  fseek(fin, 0, SEEK_END);
+  fsize = ftell(fin);
+  fclose(fin);
+  return fsize;
+}
+
 
 // Used for sampling of negative examples.
 // wc[i] == the count of context number i
@@ -123,7 +98,7 @@ void InitNet(struct vocabulary *wv, struct vocabulary *cv) {
    a = posix_memalign((void **)&syn0, 128, (long long)wv->vocab_size * layer1_size * sizeof(real));
    if (syn0 == NULL) {printf("Memory allocation failed\n"); exit(1);}
    for (b = 0; b < layer1_size; b++) 
-      for (a = 0; a < num_words; a++)
+      for (a = 0; a < wv->vocab_size; a++)
          syn0[a * layer1_size + b] = (rand() / (real)RAND_MAX - 0.5) / layer1_size;
 
    a = posix_memalign((void **)&syn1neg, 128, (long long)cv->vocab_size * layer1_size * sizeof(real));
@@ -140,25 +115,24 @@ void InitNet(struct vocabulary *wv, struct vocabulary *cv) {
 // at this point.
 void *TrainModelThread(void *id) {
    int ctxi = -1, wrdi = -1;
-  long long a, b, d;
+  long long d;
   long long word_count = 0, last_word_count = 0;
   long long l1, l2, c, target, label;
-  unsigned long long next_random = (long long)id;
+  unsigned long long next_random = (unsigned long long)id;
   real f, g;
   clock_t now;
   real *neu1 = (real *)calloc(layer1_size, sizeof(real));
   real *neu1e = (real *)calloc(layer1_size, sizeof(real));
   FILE *fi = fopen(train_file, "rb");
-  // TODO set the start_offset, end_offset correctly
-  // file_size should be divisable by 8.
-  // we then jump to (filezie/8) * something@@@
   long long start_offset = file_size / (long long)num_threads * (long long)id;
   long long end_offset = file_size / (long long)num_threads * (long long)(id+1);
+  //printf("thread %d %lld %lld \n",id, start_offset, end_offset);
   fseek(fi, start_offset, SEEK_SET);
   // if not binary:
-  while (fgetc(fi) == '\n') { };
+  while (fgetc(fi) != '\n') { }; //TODO make sure its ok
+  printf("thread %d %lld\n", id, ftell(fi));
 
-  long long train_words = wv->total_count;
+  long long train_words = wv->word_count;
   while (1) { //HERE @@@
      // TODO set alpha scheduling based on number of examples read.
      // The conceptual change is the move from word_count to pair_count
@@ -180,6 +154,8 @@ void *TrainModelThread(void *id) {
      for (c = 0; c < layer1_size; c++) neu1e[c] = 0;
      wrdi = ReadWordIndex(wv, fi);
      ctxi = ReadWordIndex(cv, fi);
+     word_count++; //TODO ?
+     if (wrdi < 0 || ctxi < 0) continue;
      //fread(&wrdi, 4, 1, fi);
      //fread(&ctxi, 4, 1, fi);
      // NEGATIVE SAMPLING
@@ -191,7 +167,7 @@ void *TrainModelThread(void *id) {
         } else {
            next_random = next_random * (unsigned long long)25214903917 + 11;
            target = unitable[(next_random >> 16) % table_size];
-           if (target == 0) target = next_random % (num_contexts - 1) + 1;
+           if (target == 0) target = next_random % (cv->vocab_size - 1) + 1;
            if (target == ctxi) continue;
            label = 0;
         }
@@ -321,18 +297,12 @@ void TrainModel() {
   long a, b, c, d;
   FILE *fo;
   FILE *fo2;
-  FILE *fin;
-  int *context_counts;
+  file_size = GetFileSize(train_file);
   pthread_t *pt = (pthread_t *)malloc(num_threads * sizeof(pthread_t));
   printf("Starting training using file %s\n", train_file);
   starting_alpha = alpha;
-  //if (read_vocab_file[0] != 0) ReadVocab(); else LearnVocabFromTrainFile();
-  //if (save_vocab_file[0] != 0) SaveVocab();
-
   wv = ReadVocab(wvocab_file);
   cv = ReadVocab(cvocab_file);
-  //context_counts = (int *)malloc(cv->vocab_size * sizeof(int));
-  if (output_file[0] == 0) return;
   InitNet(wv, cv);
   InitUnigramTable(cv);
   start = clock();
@@ -342,14 +312,14 @@ void TrainModel() {
   if (dumpcv) fo2 = fopen("output.context", "wb");
   if (classes == 0) {
     // Save the word vectors
-    fprintf(fo, "%lld %lld\n", num_words, layer1_size);
-    for (a = 0; a < num_words; a++) {
-      fprintf(fo, "%s ", vocab[a].word); //TODO
+    fprintf(fo, "%lld %lld\n", wv->vocab_size, layer1_size);
+    for (a = 0; a < wv->vocab_size; a++) {
+      fprintf(fo, "%s ", wv->vocab[a].word); //TODO
       if (binary) for (b = 0; b < layer1_size; b++) fwrite(&syn0[a * layer1_size + b], sizeof(real), 1, fo);
       else for (b = 0; b < layer1_size; b++) fprintf(fo, "%lf ", syn0[a * layer1_size + b]);
       fprintf(fo, "\n");
       if (dumpcv) {
-         fprintf(fo2, "%s ", vocab[a].word);
+         fprintf(fo2, "%s ", cv->vocab[a].word);
          if (binary) for (b = 0; b < layer1_size; b++) fwrite(&syn1neg[a * layer1_size + b], sizeof(real), 1, fo2);
          else for (b = 0; b < layer1_size; b++) fprintf(fo2, "%lf ", syn1neg[a * layer1_size + b]);
          fprintf(fo2, "\n");
@@ -359,14 +329,15 @@ void TrainModel() {
     // Run K-means on the word vectors
     int clcn = classes, iter = 10, closeid;
     int *centcn = (int *)malloc(classes * sizeof(int));
-    int *cl = (int *)calloc(vocab_size, sizeof(int));
+    int *cl = (int *)calloc(wv->vocab_size, sizeof(int));
     real closev, x;
     real *cent = (real *)calloc(classes * layer1_size, sizeof(real));
-    for (a = 0; a < vocab_size; a++) cl[a] = a % clcn;
+    for (a = 0; a < wv->vocab_size; a++) cl[a] = a % clcn;
     for (a = 0; a < iter; a++) {
+       printf("kmeans iter %d\n", a);
       for (b = 0; b < clcn * layer1_size; b++) cent[b] = 0;
       for (b = 0; b < clcn; b++) centcn[b] = 1;
-      for (c = 0; c < vocab_size; c++) {
+      for (c = 0; c < wv->vocab_size; c++) {
         for (d = 0; d < layer1_size; d++) cent[layer1_size * cl[c] + d] += syn0[c * layer1_size + d];
         centcn[cl[c]]++;
       }
@@ -379,7 +350,7 @@ void TrainModel() {
         closev = sqrt(closev);
         for (c = 0; c < layer1_size; c++) cent[layer1_size * b + c] /= closev;
       }
-      for (c = 0; c < vocab_size; c++) {
+      for (c = 0; c < wv->vocab_size; c++) {
         closev = -10;
         closeid = 0;
         for (d = 0; d < clcn; d++) {
@@ -394,13 +365,12 @@ void TrainModel() {
       }
     }
     // Save the K-means classes
-    for (a = 0; a < num_words; a++) fprintf(fo, "%s %d\n", vocab[a].word, cl[a]);
+    for (a = 0; a < wv->vocab_size; a++) fprintf(fo, "%s %d\n", wv->vocab[a].word, cl[a]);
     free(centcn);
     free(cent);
     free(cl);
   }
   fclose(fo);
-  free(context_counts);
 }
 
 int ArgPos(char *str, int argc, char **argv) {
@@ -427,35 +397,26 @@ int main(int argc, char **argv) {
     printf("\t\tUse <file> to save the resulting word vectors / word clusters\n");
     printf("\t-size <int>\n");
     printf("\t\tSet size of word vectors; default is 100\n");
-    printf("\t-window <int>\n");
-    printf("\t\tSet max skip length between words; default is 5\n");
-    printf("\t-sample <float>\n");
-    printf("\t\tSet threshold for occurrence of words. Those that appear with higher frequency");
-    printf(" in the training data will be randomly down-sampled; default is 0 (off), useful value is 1e-5\n");
     printf("\t-negative <int>\n");
     printf("\t\tNumber of negative examples; default is 15, common values are 5 - 10 (0 = not used)\n");
     printf("\t-threads <int>\n");
     printf("\t\tUse <int> threads (default 1)\n");
-    printf("\t-min-count <int>\n");
-    printf("\t\tThis will discard words that appear less than <int> times; default is 5\n");
+    //printf("\t-min-count <int>\n");
+    //printf("\t\tThis will discard words that appear less than <int> times; default is 5\n");
     printf("\t-alpha <float>\n");
     printf("\t\tSet the starting learning rate; default is 0.025\n");
     printf("\t-classes <int>\n");
     printf("\t\tOutput word classes rather than word vectors; default number of classes is 0 (vectors are written)\n");
-    printf("\t-debug <int>\n");
-    printf("\t\tSet the debug mode (default = 2 = more info during training)\n");
     printf("\t-binary <int>\n");
     printf("\t\tSave the resulting vectors in binary moded; default is 0 (off)\n");
-    printf("\t-save-vocab <file>\n");
-    printf("\t\tThe vocabulary will be saved to <file>\n");
-    printf("\t-read-vocab <file>\n");
-    printf("\t\tThe vocabulary will be read from <file>, not constructed from the training data\n");
     printf("\t-dumpcv 1\n");
     printf("\t\tDump the context vectors, in file <output>.context\n");
-    printf("\t-pos 1\n");
-    printf("\t\tInclude sequence position information in context.\n");
+    printf("\t-wvocab 1\n");
+    printf("\t\twords vocabulary file\n");
+    printf("\t-cvocab 1\n");
+    printf("\t\tcontexts vocabulary file\n");
     printf("\nExamples:\n");
-    printf("./word2vec -train data.txt -output vec.txt -debug 2 -size 200 -window 5 -sample 1e-4 -negative 5 -binary 0 \n\n");
+    printf("./word2vecf -train data.txt -wvocab wv -cvocab cv -output vec.txt -size 200 -negative 5 -threads 10 \n\n");
     return 0;
   }
   output_file[0] = 0;
@@ -478,6 +439,9 @@ int main(int argc, char **argv) {
      printf("-dumpcv requires negative training.\n\n");
      return 0;
   };
+  if (output_file[0] == 0) { printf("must supply -output.\n\n"); return 0; }
+  if (wvocab_file[0] == 0) { printf("must supply -wvocab.\n\n"); return 0; }
+  if (cvocab_file[0] == 0) { printf("must supply -cvocab.\n\n"); return 0; }
   expTable = (real *)malloc((EXP_TABLE_SIZE + 1) * sizeof(real));
   for (i = 0; i < EXP_TABLE_SIZE; i++) {
     expTable[i] = exp((i / (real)EXP_TABLE_SIZE * 2 - 1) * MAX_EXP); // Precompute the exp() table
