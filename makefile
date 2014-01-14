@@ -9,6 +9,8 @@ word2vec : word2vec.c
 	$(CC) word2vec.c -o word2vec $(CFLAGS)
 word2vecf : word2vecf.c
 	$(CC) word2vecf.c -o word2vecf $(CFLAGS)
+count_and_filter : count_and_filter.c
+	$(CC) count_and_filter.c -o count_and_filter $(CFLAGS)
 word2phrase : word2phrase.c
 	$(CC) word2phrase.c -o word2phrase $(CFLAGS)
 distance : distance.c

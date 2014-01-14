@@ -1,3 +1,28 @@
+Unlike the original word2vec program which is self-contained,
+the word2vecf program assumes some precomputations.
+
+In particular, word2vecf DOES NOT handle vocabulary construction, and does
+not read an unprocessed input.
+
+The expected files are:
+word_vocabulary:
+   file mapping integers to strings (and has a count for each word)
+   not used by the program, but needed for interpretting its output.
+context_vocabulary:
+   file mapping integers to string, and has a count for each feature.
+   used for constructing the sampling table for the negative training.
+training_data:
+   binary file with words and their contexts.
+   the format is pairs of integers (32bit each), first integer is the word,
+   second integer is the context.
+   if we want to prefer some contexts over the others, we should construct the
+   training data to contain the bias.
+   the data at even indices are the words, the data at odd indices are the
+   contexts (zero based).
+
+also needed: word vocabulary size, contexts vocabulary size.
+
+
 Tools for computing distributed representtion of words
 ------------------------------------------------------
 
