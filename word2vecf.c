@@ -38,15 +38,14 @@
 #define MAX_SENTENCE_LENGTH 1000
 #define MAX_CODE_LENGTH 40
 
-//const int vocab_hash_size = 30000000;  // Maximum 30 * 0.7 = 21M words in the vocabulary
-
 typedef float real;                    // Precision of float numbers
 
 char train_file[MAX_STRING], output_file[MAX_STRING];
 char wvocab_file[MAX_STRING], cvocab_file[MAX_STRING];
+char dumpcv_file[MAX_STRING];
 int binary = 0, debug_mode = 2, window = 5, min_count = 5, num_threads = 1, min_reduce = 1, use_position = 0;
 long long layer1_size = 100;
-long long train_words = 0, word_count_actual = 0, file_size = 0, classes = 0, dumpcv = 0;
+long long train_words = 0, word_count_actual = 0, file_size = 0, classes = 0;
 real alpha = 0.025, starting_alpha, sample = 0;
 real *syn0, *syn1, *syn1neg, *expTable;
 clock_t start;
@@ -309,21 +308,24 @@ void TrainModel() {
   for (a = 0; a < num_threads; a++) pthread_create(&pt[a], NULL, TrainModelThread, (void *)a);
   for (a = 0; a < num_threads; a++) pthread_join(pt[a], NULL);
   fo = fopen(output_file, "wb");
-  if (dumpcv) fo2 = fopen("output.context", "wb");
   if (classes == 0) {
     // Save the word vectors
-    fprintf(fo, "%lld %lld\n", wv->vocab_size, layer1_size);
+    if (dumpcv_file[0] != 0) {
+        fo2 = fopen(dumpcv_file, "wb");
+        fprintf(fo2, "%d %d\n", cv->vocab_size, layer1_size);
+        for (a = 0; a < cv->vocab_size; a++) {
+           fprintf(fo2, "%s ", cv->vocab[a].word); //TODO
+           if (binary) for (b = 0; b < layer1_size; b++) fwrite(&syn1neg[a * layer1_size + b], sizeof(real), 1, fo2);
+           else for (b = 0; b < layer1_size; b++) fprintf(fo2, "%lf ", syn1neg[a * layer1_size + b]);
+           fprintf(fo2, "\n");
+       }
+    }
+    fprintf(fo, "%d %d\n", wv->vocab_size, layer1_size);
     for (a = 0; a < wv->vocab_size; a++) {
       fprintf(fo, "%s ", wv->vocab[a].word); //TODO
       if (binary) for (b = 0; b < layer1_size; b++) fwrite(&syn0[a * layer1_size + b], sizeof(real), 1, fo);
       else for (b = 0; b < layer1_size; b++) fprintf(fo, "%lf ", syn0[a * layer1_size + b]);
       fprintf(fo, "\n");
-      if (dumpcv) {
-         fprintf(fo2, "%s ", cv->vocab[a].word);
-         if (binary) for (b = 0; b < layer1_size; b++) fwrite(&syn1neg[a * layer1_size + b], sizeof(real), 1, fo2);
-         else for (b = 0; b < layer1_size; b++) fprintf(fo2, "%lf ", syn1neg[a * layer1_size + b]);
-         fprintf(fo2, "\n");
-      }
     }
   } else {
     // Run K-means on the word vectors
@@ -409,11 +411,11 @@ int main(int argc, char **argv) {
     printf("\t\tOutput word classes rather than word vectors; default number of classes is 0 (vectors are written)\n");
     printf("\t-binary <int>\n");
     printf("\t\tSave the resulting vectors in binary moded; default is 0 (off)\n");
-    printf("\t-dumpcv 1\n");
-    printf("\t\tDump the context vectors, in file <output>.context\n");
-    printf("\t-wvocab 1\n");
+    printf("\t-dumpcv filename\n");
+    printf("\t\tDump the context vectors in file <filename>\n");
+    printf("\t-wvocab filename\n");
     printf("\t\twords vocabulary file\n");
-    printf("\t-cvocab 1\n");
+    printf("\t-cvocab filename\n");
     printf("\t\tcontexts vocabulary file\n");
     printf("\nExamples:\n");
     printf("./word2vecf -train data.txt -wvocab wv -cvocab cv -output vec.txt -size 200 -negative 5 -threads 10 \n\n");
@@ -422,6 +424,7 @@ int main(int argc, char **argv) {
   output_file[0] = 0;
   wvocab_file[0] = 0;
   cvocab_file[0] = 0;
+  dumpcv_file[0] = 0;
   if ((i = ArgPos((char *)"-size", argc, argv)) > 0) layer1_size = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-train", argc, argv)) > 0) strcpy(train_file, argv[i + 1]);
   if ((i = ArgPos((char *)"-wvocab", argc, argv)) > 0) strcpy(wvocab_file, argv[i + 1]);
@@ -434,11 +437,8 @@ int main(int argc, char **argv) {
   if ((i = ArgPos((char *)"-threads", argc, argv)) > 0) num_threads = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-min-count", argc, argv)) > 0) min_count = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-classes", argc, argv)) > 0) classes = atoi(argv[i + 1]);
-  if ((i = ArgPos((char *)"-dumpcv", argc, argv)) > 0) dumpcv = atoi(argv[i + 1]);
-  if (dumpcv && negative == 0) {
-     printf("-dumpcv requires negative training.\n\n");
-     return 0;
-  };
+  if ((i = ArgPos((char *)"-dumpcv", argc, argv)) > 0) strcpy(dumpcv_file, argv[i + 1]);
+
   if (output_file[0] == 0) { printf("must supply -output.\n\n"); return 0; }
   if (wvocab_file[0] == 0) { printf("must supply -wvocab.\n\n"); return 0; }
   if (cvocab_file[0] == 0) { printf("must supply -cvocab.\n\n"); return 0; }
