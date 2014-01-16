@@ -1,3 +1,6 @@
+// Modified by Yoav Goldberg, Jan. 2014 
+//  - ability to dump context vectors. (-dumpcv filename)
+//
 //  Copyright 2013 Google Inc. All Rights Reserved.
 //
 //  Licensed under the Apache License, Version 2.0 (the "License");
@@ -35,6 +38,7 @@ struct vocab_word {
 };
 
 char train_file[MAX_STRING], output_file[MAX_STRING];
+char dumpcv_file[MAX_STRING];
 char save_vocab_file[MAX_STRING], read_vocab_file[MAX_STRING];
 struct vocab_word *vocab;
 int binary = 0, cbow = 0, debug_mode = 2, window = 5, min_count = 5, num_threads = 1, min_reduce = 1, use_position = 0;
@@ -555,16 +559,17 @@ void TrainModel() {
   for (a = 0; a < num_threads; a++) pthread_create(&pt[a], NULL, TrainModelThread, (void *)a);
   for (a = 0; a < num_threads; a++) pthread_join(pt[a], NULL);
   fo = fopen(output_file, "wb");
-  if (dumpcv) fo2 = fopen("output.context", "wb");
+  if (dumpcv_file[0] != 0) fo2 = fopen(dumpcv_file, "wb");
   if (classes == 0) {
     // Save the word vectors
     fprintf(fo, "%lld %lld\n", vocab_size, layer1_size);
+    if (dumpcv_file[0] != 0) fprintf(fo2, "%lld %lld\n", vocab_size, layer1_size);
     for (a = 0; a < vocab_size; a++) {
       fprintf(fo, "%s ", vocab[a].word);
       if (binary) for (b = 0; b < layer1_size; b++) fwrite(&syn0[a * layer1_size + b], sizeof(real), 1, fo);
       else for (b = 0; b < layer1_size; b++) fprintf(fo, "%lf ", syn0[a * layer1_size + b]);
       fprintf(fo, "\n");
-      if (dumpcv) {
+      if (dumpcv_file[0] != 0) {
          fprintf(fo2, "%s ", vocab[a].word);
          if (binary) for (b = 0; b < layer1_size; b++) fwrite(&syn1neg[a * layer1_size + b], sizeof(real), 1, fo2);
          else for (b = 0; b < layer1_size; b++) fprintf(fo2, "%lf ", syn1neg[a * layer1_size + b]);
@@ -669,8 +674,8 @@ int main(int argc, char **argv) {
     printf("\t\tThe vocabulary will be read from <file>, not constructed from the training data\n");
     printf("\t-cbow <int>\n");
     printf("\t\tUse the continuous bag of words model; default is 0 (skip-gram model)\n");
-    printf("\t-dumpcv 1\n");
-    printf("\t\tDump the context vectors, in file <output>.context\n");
+    printf("\t-dumpcv <filename>\n");
+    printf("\t\tDump the context vectors, in file <filename>\n");
     printf("\t-pos 1\n");
     printf("\t\tInclude sequence position information in context.\n");
     printf("\nExamples:\n");
@@ -678,6 +683,7 @@ int main(int argc, char **argv) {
     return 0;
   }
   output_file[0] = 0;
+  dumpcv_file[0] = 0;
   save_vocab_file[0] = 0;
   read_vocab_file[0] = 0;
   if ((i = ArgPos((char *)"-size", argc, argv)) > 0) layer1_size = atoi(argv[i + 1]);
@@ -696,13 +702,13 @@ int main(int argc, char **argv) {
   if ((i = ArgPos((char *)"-threads", argc, argv)) > 0) num_threads = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-min-count", argc, argv)) > 0) min_count = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-classes", argc, argv)) > 0) classes = atoi(argv[i + 1]);
-  if ((i = ArgPos((char *)"-dumpcv", argc, argv)) > 0) dumpcv = atoi(argv[i + 1]);
+  if ((i = ArgPos((char *)"-dumpcv", argc, argv)) > 0) strcpy(dumpcv_file, argv[i + 1]);
   if ((i = ArgPos((char *)"-pos", argc, argv)) > 0) use_position = 1;
-  if (dumpcv && negative == 0) {
+  if (dumpcv_file[0] != 0 && negative == 0) {
      printf("-dumpcv requires negative training.\n\n");
      return 0;
   };
-  if (dumpcv && (use_position > 0)) {
+  if (dumpcv_file[0] != 0 && (use_position > 0)) {
      printf("-dumpcv cannot run with use_position yet.\n\n");
      return 0;
   };
