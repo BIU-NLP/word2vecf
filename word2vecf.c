@@ -155,6 +155,15 @@ void *TrainModelThread(void *id) {
      ctxi = ReadWordIndex(cv, fi);
      word_count++; //TODO ?
      if (wrdi < 0 || ctxi < 0) continue;
+
+     if (sample > 0) {
+          real ran = (sqrt(wv->vocab[wrdi].cn / (sample * wv->word_count)) + 1) * (sample * wv->word_count) / wv->vocab[wrdi].cn;
+          next_random = next_random * (unsigned long long)25214903917 + 11;
+          if (ran < (next_random & 0xFFFF) / (real)65536) continue;
+          ran = (sqrt(cv->vocab[ctxi].cn / (sample * cv->word_count)) + 1) * (sample * cv->word_count) / cv->vocab[ctxi].cn;
+          next_random = next_random * (unsigned long long)25214903917 + 11;
+          if (ran < (next_random & 0xFFFF) / (real)65536) continue;
+     }
      //fread(&wrdi, 4, 1, fi);
      //fread(&ctxi, 4, 1, fi);
      // NEGATIVE SAMPLING
@@ -405,6 +414,9 @@ int main(int argc, char **argv) {
     printf("\t\tUse <int> threads (default 1)\n");
     //printf("\t-min-count <int>\n");
     //printf("\t\tThis will discard words that appear less than <int> times; default is 5\n");
+    printf("\t-sample <float>\n");
+    printf("\t\tSet threshold for occurrence of words and contexts. Those that appear with higher frequency");
+    printf(" in the training data will be randomly down-sampled; default is 0 (off), useful value in the original word2vec was 1e-5\n");
     printf("\t-alpha <float>\n");
     printf("\t\tSet the starting learning rate; default is 0.025\n");
     printf("\t-classes <int>\n");
@@ -437,6 +449,7 @@ int main(int argc, char **argv) {
   if ((i = ArgPos((char *)"-threads", argc, argv)) > 0) num_threads = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-min-count", argc, argv)) > 0) min_count = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-classes", argc, argv)) > 0) classes = atoi(argv[i + 1]);
+  if ((i = ArgPos((char *)"-sample", argc, argv)) > 0) sample = atof(argv[i + 1]);
   if ((i = ArgPos((char *)"-dumpcv", argc, argv)) > 0) strcpy(dumpcv_file, argv[i + 1]);
 
   if (output_file[0] == 0) { printf("must supply -output.\n\n"); return 0; }
