@@ -1,3 +1,15 @@
+
+This is a modification of the word2vec software by Mikolov et.al, allowing:
+   - performing multiple iterations over the data.
+   - the use of arbitraty context features.
+   - dumping the context vectors at the end of the process.
+
+This software was used in the paper "Dependency-Based Word Embeddings", Omer
+Levy and Yoav Goldberg, 2014.
+
+The "main" binary is word2vecf. See README.word2vecf.txt for usage
+instructions.
+
 Unlike the original word2vec program which is self-contained,
 the word2vecf program assumes some precomputations.
 
@@ -22,6 +34,7 @@ training_data:
 
 also needed: word vocabulary size, contexts vocabulary size.
 
+(content below is the README.txt file of the original word2vec software)
 
 Tools for computing distributed representtion of words
 ------------------------------------------------------
