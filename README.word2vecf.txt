@@ -47,7 +47,7 @@ There are three stages:
 
       3.5 convert the embeddins to numpy-readable format:
          
-            ./scripts/vecs2np2.py dim200vecs vecs
+            ./scripts/vecs2nps.py dim200vecs vecs
 
           This will create `vecs.npy` and `vecs.vocab`, which can be read by
           the infer.py script.
