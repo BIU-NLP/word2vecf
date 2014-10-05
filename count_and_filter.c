@@ -55,8 +55,6 @@ void LearnVocabFromTrainFile() {
     printf("ERROR: training data file not found!\n");
     exit(1);
   }
-  AddWordToVocab(wv, (char *)"</s>");
-  AddWordToVocab(cv, (char *)"</s>");
   while (1) {
     ReadWord(word, fin, MAX_STRING);
     ReadWord(context, fin, MAX_STRING);
