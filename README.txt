@@ -18,21 +18,16 @@ not read an unprocessed input.
 
 The expected files are:
 word_vocabulary:
-   file mapping integers to strings (and has a count for each word)
-   not used by the program, but needed for interpretting its output.
+   file mapping words (strings) to their counts
 context_vocabulary:
-   file mapping integers to string, and has a count for each feature.
+   file mapping contexts (strings) to their counts
    used for constructing the sampling table for the negative training.
 training_data:
-   binary file with words and their contexts.
-   the format is pairs of integers (32bit each), first integer is the word,
-   second integer is the context.
+   textual file of word-context pairs.
+   each pair takes a seperate line.
+   the format of a pair is "<word> <context>", i.e. space delimited, where <word> and <context> are strings.
    if we want to prefer some contexts over the others, we should construct the
    training data to contain the bias.
-   the data at even indices are the words, the data at odd indices are the
-   contexts (zero based).
-
-also needed: word vocabulary size, contexts vocabulary size.
 
 (content below is the README.txt file of the original word2vec software)
 
