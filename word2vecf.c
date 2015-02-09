@@ -144,11 +144,11 @@ void *TrainModelThread(void *id) {
            if ((debug_mode > 1)) {
               now=clock();
               printf("%cAlpha: %f  Progress: %.2f%%  Words/thread/sec: %.2fk  ", 13, alpha,
-                    word_count_actual / (real)(train_words + 1) * 100,
+                    word_count_actual / (real)(numiters*train_words + 1) * 100,
                     word_count_actual / ((real)(now - start + 1) / (real)CLOCKS_PER_SEC * 1000));
               fflush(stdout);
            }
-           alpha = starting_alpha * (1 - word_count_actual / (real)(train_words + 1));
+           alpha = starting_alpha * (1 - word_count_actual / (real)(numiters*train_words + 1));
            if (alpha < starting_alpha * 0.0001) alpha = starting_alpha * 0.0001;
         }
         if (feof(fi) || ftell(fi) > end_offset) break;
